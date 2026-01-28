@@ -12,11 +12,15 @@ func main() {
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/", fileServer)
 
+	assets := http.FileServer(http.Dir("./assets/"))
+	mux.Handle("/assets/", http.StripPrefix("/assets/", assets))
+
+	// Wrap the mux with CORS handling
 	corsMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, image/png")
 			w.WriteHeader(http.StatusOK)
 			return
 		}
