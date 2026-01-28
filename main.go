@@ -18,9 +18,9 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func (cfg *apiConfig) serverMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Hits: %d\n", cfg.fileServerHits)
+	fmt.Fprintf(w, "<html><body><h1>Welcome, Chirpy Admin</h1><p>Chirpy has been visited %d times!</p></body></html>", cfg.fileServerHits)
 }
 
 func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
@@ -41,9 +41,10 @@ func main() {
 	assets := http.FileServer(http.Dir("./assets/"))
 	mux.Handle("/assets/", http.StripPrefix("/assets/", assets))
 
-	mux.HandleFunc("GET /healthz", readinessHandler)
-	mux.HandleFunc("GET /metrics", apiCfg.serverMetrics)
-	mux.HandleFunc("POST /reset", apiCfg.resetHits)
+	mux.HandleFunc("GET /api/healthz", readinessHandler)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.serverMetrics)
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetHits)
+	mux.HandleFunc("POST /api/validate_chirp", validateChirps)
 
 	// Wrap the mux with CORS handling
 	corsMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
