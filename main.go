@@ -11,9 +11,16 @@ func main() {
 
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/", fileServer)
+	mux.Handle("/app/", http.StripPrefix("/app/", fileServer))
 
 	assets := http.FileServer(http.Dir("./assets/"))
 	mux.Handle("/assets/", http.StripPrefix("/assets/", assets))
+
+	mux.HandleFunc("/healthz/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
 	// Wrap the mux with CORS handling
 	corsMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
