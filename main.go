@@ -20,7 +20,7 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 func (cfg *apiConfig) serverMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Hits: %d\n", cfg.fileServerHits)))
+	fmt.Fprintf(w, "Hits: %d\n", cfg.fileServerHits)
 }
 
 func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
@@ -36,20 +36,14 @@ func main() {
 	apiCfg := &apiConfig{}
 
 	fileServer := http.FileServer(http.Dir("."))
-	mux.Handle("/", apiCfg.middlewareMetricsInc(fileServer))
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(fileServer)))
 
 	assets := http.FileServer(http.Dir("./assets/"))
 	mux.Handle("/assets/", http.StripPrefix("/assets/", assets))
 
-	mux.HandleFunc("/healthz/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	mux.HandleFunc("/metrics/", apiCfg.serverMetrics)
-	mux.HandleFunc("/reset/", apiCfg.resetHits)
+	mux.HandleFunc("GET /healthz", readinessHandler)
+	mux.HandleFunc("GET /metrics", apiCfg.serverMetrics)
+	mux.HandleFunc("POST /reset", apiCfg.resetHits)
 
 	// Wrap the mux with CORS handling
 	corsMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +54,7 @@ func main() {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+
 		mux.ServeHTTP(w, r)
 	})
 
