@@ -1,13 +1,20 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/BlackDogJet/Chirpy/internal/databases"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileServerHits int
+	dbQueries      *databases.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -31,9 +38,23 @@ func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	godotenv.Load()
+
+	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		log.Fatal("DB_URL environment variable is not set")
+	}
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Error opening database: %s", err)
+	}
+	defer db.Close()
+
 	mux := http.NewServeMux()
 
-	apiCfg := &apiConfig{}
+	dbQueries := databases.New(db)
+	apiCfg := &apiConfig{dbQueries: dbQueries}
 
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(fileServer)))
@@ -45,6 +66,7 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.serverMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHits)
 	mux.HandleFunc("POST /api/validate_chirp", validateChirps)
+	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 
 	// Wrap the mux with CORS handling
 	corsMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
