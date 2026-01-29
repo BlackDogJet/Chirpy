@@ -2,10 +2,10 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"sync/atomic"
 
 	"github.com/BlackDogJet/Chirpy/internal/databases"
 	"github.com/joho/godotenv"
@@ -13,31 +13,14 @@ import (
 )
 
 type apiConfig struct {
-	fileServerHits int
-	dbQueries      *databases.Queries
-}
-
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileServerHits++
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (cfg *apiConfig) serverMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "<html><body><h1>Welcome, Chirpy Admin</h1><p>Chirpy has been visited %d times!</p></body></html>", cfg.fileServerHits)
-}
-
-func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
-	cfg.fileServerHits = 0
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Hits reset to 0\n"))
+	fileServerHits atomic.Int32
+	db             *databases.Queries
+	platform       string
 }
 
 func main() {
+	const port = "8080"
+
 	godotenv.Load()
 
 	dbURL := os.Getenv("DB_URL")
@@ -45,18 +28,28 @@ func main() {
 		log.Fatal("DB_URL environment variable is not set")
 	}
 
-	db, err := sql.Open("postgres", dbURL)
+	platform := os.Getenv("PLATFORM")
+	if platform == "" {
+		log.Fatal("PLATFORM environment variable is not set")
+	}
+
+	dbConn, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Error opening database: %s", err)
 	}
-	defer db.Close()
+
+	dbQueries := databases.New(dbConn)
+
+	apiCfg := apiConfig{
+		fileServerHits: atomic.Int32{},
+		db:             dbQueries,
+		platform:       platform,
+	}
+
+	fileServer := http.FileServer(http.Dir("."))
 
 	mux := http.NewServeMux()
 
-	dbQueries := databases.New(db)
-	apiCfg := &apiConfig{dbQueries: dbQueries}
-
-	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(fileServer)))
 
 	assets := http.FileServer(http.Dir("./assets/"))
@@ -65,8 +58,8 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", readinessHandler)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.serverMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHits)
-	mux.HandleFunc("POST /api/validate_chirp", validateChirps)
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
+	mux.HandleFunc("POST /api/chirps", apiCfg.createChirp)
 
 	// Wrap the mux with CORS handling
 	corsMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -82,9 +75,11 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + port,
 		Handler: corsMux,
 	}
+
+	log.Printf("Serving on port: %s\n", port)
 
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatal(err)

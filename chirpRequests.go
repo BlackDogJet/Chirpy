@@ -4,28 +4,40 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/BlackDogJet/Chirpy/internal/databases"
+	"github.com/google/uuid"
 )
 
-func validateChirps(w http.ResponseWriter, r *http.Request) {
+type Chirp struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	Body      string `json:"body"`
+	UserID    string `json:"user_id"`
+}
+
+func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body string `json:"body"`
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
 	}
 
 	type returnVal struct {
-		CleanedBody string `json:"cleaned_body"`
+		Chirp
 	}
 
 	decoder := json.NewDecoder(r.Body)
-	var params parameters
+	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error decoding JSON request body")
+		respondWithError(w, http.StatusInternalServerError, "Error decoding JSON request body", err)
 		return
 	}
 
 	const maxChirpLength = 140
 	if len(params.Body) > maxChirpLength {
-		respondWithError(w, http.StatusBadRequest, "Chirp body exceeds maximum length of 140 characters")
+		respondWithError(w, http.StatusBadRequest, "Chirp body exceeds maximum length of 140 characters", nil)
 		return
 	}
 
@@ -37,43 +49,34 @@ func validateChirps(w http.ResponseWriter, r *http.Request) {
 
 	cleanedBody := getCleanedBody(params.Body, badWords)
 
-	responseWithJSON(w, http.StatusOK, returnVal{CleanedBody: cleanedBody})
-}
+	chirp, err := cfg.db.CreateChirp(r.Context(), databases.CreateChirpParams{
+		Body:   cleanedBody,
+		UserID: params.UserID,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating chirp in database", err)
+		return
+	}
 
-func respondWithError(w http.ResponseWriter, code int, message string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
-}
-
-func responseWithJSON(w http.ResponseWriter, code int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(payload)
+	responseWithJSON(w, http.StatusCreated, returnVal{
+		Chirp: Chirp{
+			ID:        chirp.ID.String(),
+			CreatedAt: chirp.CreatedAt.String(),
+			UpdatedAt: chirp.UpdatedAt.String(),
+			Body:      chirp.Body,
+			UserID:    chirp.UserID.String(),
+		},
+	})
 }
 
 func getCleanedBody(body string, badWords map[string]struct{}) string {
-	cleanedBody := body
-	for badWord := range badWords {
-		cleanedBody = replaceIgnoreCase(cleanedBody, badWord, "****")
-	}
-
-	return cleanedBody
-}
-
-func replaceIgnoreCase(cleanedBody, badWord, s string) string {
-	lowerBody := strings.ToLower(cleanedBody)
-	lowerBadWord := strings.ToLower(badWord)
-
-	for {
-		index := strings.Index(lowerBody, lowerBadWord)
-		if index == -1 {
-			break
+	words := strings.Split(body, " ")
+	for i, word := range words {
+		loweredWord := strings.ToLower(word)
+		if _, ok := badWords[loweredWord]; ok {
+			words[i] = "****"
 		}
-
-		cleanedBody = cleanedBody[:index] + s + cleanedBody[index+len(badWord):]
-		lowerBody = strings.ToLower(cleanedBody)
 	}
-
-	return cleanedBody
+	cleaned := strings.Join(words, " ")
+	return cleaned
 }
