@@ -1,10 +1,10 @@
 -- +goose Up
-CREATE TABLE chirps(
+CREATE TABLE chirps (
     id UUID PRIMARY KEY,
-    created_at TIMESTAMP not null,
-    updated_at TIMESTAMP not null,
-    body VARCHAR not null,
-    user_id UUID not null
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    body TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- +goose Down
