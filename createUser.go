@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/BlackDogJet/Chirpy/internal/auth"
+	"github.com/BlackDogJet/Chirpy/internal/databases"
 	"github.com/google/uuid"
 )
 
@@ -17,7 +19,8 @@ type User struct {
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	type returnVal struct {
@@ -32,7 +35,18 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := cfg.db.CreateUser(r.Context(), params.Email)
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error hashing password", err)
+		return
+	}
+
+	params.Password = hashedPassword
+
+	user, err := cfg.db.CreateUser(r.Context(), databases.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: params.Password,
+	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error creating user in database", err)
 		return

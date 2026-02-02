@@ -16,6 +16,7 @@ type apiConfig struct {
 	fileServerHits atomic.Int32
 	db             *databases.Queries
 	platform       string
+	jwtSecret      string
 }
 
 func main() {
@@ -33,6 +34,11 @@ func main() {
 		log.Fatal("PLATFORM environment variable is not set")
 	}
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is not set")
+	}
+
 	dbConn, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Error opening database: %s", err)
@@ -44,6 +50,7 @@ func main() {
 		fileServerHits: atomic.Int32{},
 		db:             dbQueries,
 		platform:       platform,
+		jwtSecret:      jwtSecret,
 	}
 
 	fileServer := http.FileServer(http.Dir("."))
@@ -56,10 +63,19 @@ func main() {
 	mux.Handle("/assets/", http.StripPrefix("/assets/", assets))
 
 	mux.HandleFunc("GET /api/healthz", readinessHandler)
-	mux.HandleFunc("GET /admin/metrics", apiCfg.serverMetrics)
-	mux.HandleFunc("POST /admin/reset", apiCfg.resetHits)
+
+	mux.HandleFunc("POST /api/login", apiCfg.loginUser)
+	mux.HandleFunc("POST /api/refresh", apiCfg.refreshToken)
+	mux.HandleFunc("POST /api/revoke", apiCfg.revokeToken)
+
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
+
 	mux.HandleFunc("POST /api/chirps", apiCfg.createChirp)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirpByID)
+
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetHits)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.serverMetrics)
 
 	// Wrap the mux with CORS handling
 	corsMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

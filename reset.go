@@ -19,5 +19,5 @@ func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Hits reset to 0 and database reset to initial state."))
+	w.Write([]byte("Hits reset to 0 and database reset to initial state.\n"))
 }

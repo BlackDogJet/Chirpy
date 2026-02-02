@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/BlackDogJet/Chirpy/internal/auth"
 	"github.com/BlackDogJet/Chirpy/internal/databases"
 	"github.com/google/uuid"
 )
@@ -19,17 +21,24 @@ type Chirp struct {
 
 func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body   string    `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
 	}
 
-	type returnVal struct {
-		Chirp
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid Authorization header", err)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token", err)
+		return
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error decoding JSON request body", err)
 		return
@@ -41,32 +50,87 @@ func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	badWords := map[string]struct{}{
-		"kerfuffle": {},
-		"sharbert":  {},
-		"fornax":    {},
+	cleanedBody, err := validateChirp(params.Body)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error(), err)
+		return
 	}
-
-	cleanedBody := getCleanedBody(params.Body, badWords)
 
 	chirp, err := cfg.db.CreateChirp(r.Context(), databases.CreateChirpParams{
 		Body:   cleanedBody,
-		UserID: params.UserID,
+		UserID: userID,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error creating chirp in database", err)
 		return
 	}
 
-	responseWithJSON(w, http.StatusCreated, returnVal{
-		Chirp: Chirp{
-			ID:        chirp.ID.String(),
-			CreatedAt: chirp.CreatedAt.String(),
-			UpdatedAt: chirp.UpdatedAt.String(),
-			Body:      chirp.Body,
-			UserID:    chirp.UserID.String(),
-		},
+	responseWithJSON(w, http.StatusCreated, Chirp{
+		ID:        chirp.ID.String(),
+		CreatedAt: chirp.CreatedAt.String(),
+		UpdatedAt: chirp.UpdatedAt.String(),
+		Body:      chirp.Body,
+		UserID:    chirp.UserID.String(),
 	})
+}
+
+func (cfg *apiConfig) getChirpByID(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp ID format", err)
+		return
+	}
+
+	chirp, err := cfg.db.GetChirpByID(r.Context(), id)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Error getting chirp from database", err)
+		return
+	}
+
+	responseWithJSON(w, http.StatusOK, Chirp{
+		ID:        chirp.ID.String(),
+		CreatedAt: chirp.CreatedAt.String(),
+		UpdatedAt: chirp.UpdatedAt.String(),
+		Body:      chirp.Body,
+		UserID:    chirp.UserID.String(),
+	})
+}
+
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.db.GetChirps(r.Context())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error getting chirps from database", err)
+		return
+	}
+
+	convertedChirps := make([]Chirp, len(chirps))
+	for i := range chirps {
+		convertedChirps[i] = Chirp{
+			ID:        chirps[i].ID.String(),
+			CreatedAt: chirps[i].CreatedAt.String(),
+			UpdatedAt: chirps[i].UpdatedAt.String(),
+			Body:      chirps[i].Body,
+			UserID:    chirps[i].UserID.String(),
+		}
+	}
+
+	responseWithJSON(w, http.StatusOK, convertedChirps)
+}
+
+func validateChirp(body string) (string, error) {
+	const maxChirpLength = 140
+	if len(body) > maxChirpLength {
+		return "", errors.New("Chirp is too long")
+	}
+
+	badWords := map[string]struct{}{
+		"kerfuffle": {},
+		"sharbert":  {},
+		"fornax":    {},
+	}
+
+	cleaned := getCleanedBody(body, badWords)
+	return cleaned, nil
 }
 
 func getCleanedBody(body string, badWords map[string]struct{}) string {
@@ -77,6 +141,7 @@ func getCleanedBody(body string, badWords map[string]struct{}) string {
 			words[i] = "****"
 		}
 	}
+
 	cleaned := strings.Join(words, " ")
 	return cleaned
 }
