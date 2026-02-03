@@ -142,6 +142,32 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	authorID := r.URL.Query().Get("author_id")
+
+	if authorID != "" {
+		parsedAuthorID, err := uuid.Parse(authorID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid author_id format", err)
+			return
+		}
+
+		filteredChirps := []databases.Chirp{}
+		for _, chirp := range chirps {
+			if chirp.UserID == parsedAuthorID {
+				filteredChirps = append(filteredChirps, chirp)
+			}
+		}
+
+		chirps = filteredChirps
+	}
+
+	sortOrder := r.URL.Query().Get("sort")
+	if sortOrder == "desc" {
+		for i, j := 0, len(chirps)-1; i < j; i, j = i+1, j-1 {
+			chirps[i], chirps[j] = chirps[j], chirps[i]
+		}
+	}
+
 	convertedChirps := make([]Chirp, len(chirps))
 	for i := range chirps {
 		convertedChirps[i] = Chirp{
