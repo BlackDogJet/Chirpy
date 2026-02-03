@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -107,4 +108,18 @@ func MakeRefreshToken() (string, error) {
 
 	tokenString := hex.EncodeToString(randomBytes)
 	return tokenString, nil
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	header := headers.Get("Authorization")
+	if header == "" {
+		return "", ErrNoAuthHeaderIncluded
+	}
+
+	splitAuth := strings.Split(header, " ")
+	if len(splitAuth) < 2 || splitAuth[0] != "ApiKey" {
+		return "", errors.New("invalid authorization header format")
+	}
+
+	return strings.TrimSpace(splitAuth[1]), nil
 }

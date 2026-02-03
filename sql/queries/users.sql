@@ -23,3 +23,11 @@ SET
     hashed_password = COALESCE($3, hashed_password)
 WHERE id = $1
 RETURNING *;
+
+-- name: UpdateUserIsChirpyRed :one
+UPDATE users
+SET
+    updated_at = CURRENT_TIMESTAMP,
+    is_chirpy_red = true
+WHERE id = $1
+RETURNING *;
